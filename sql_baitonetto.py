@@ -1,128 +1,128 @@
 import sqlite3
-from flask import Flask, redirect, render_template, request, session, url_for
+from fastapi import FastAPI
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+import datetime
+from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-import re
+class item(BaseModel):
+    title : str
+    making_time : str
+    serves : str
+    ingredients : str
+    cost : int
 
-djob=[]
+app = FastAPI()
 
-options = webdriver.ChromeOptions()
-options.add_argument("--headless")
-options.add_argument('--disable-dev-shm-usage')
-options.add_argument("--no-sandbox")
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=200,
+        content=jsonable_encoder({"message": "Recipe creation failed!","required": "title, making_time, serves, ingredients, cost"}),
+    )
 
-driver = webdriver.Chrome(
-            options=options
-        )
-
-"""
-driver.get("https://baitonet.jp/search/ps_21/")
-ahtml = driver.page_source
-print("ahtml-1:",ahtml)
-"""
-
-def pagecount(html):
-      kensu_list = re.findall('検索結果<span class="mainFontColor">(.*)</span>件',html)
-      if kensu_list == []:
-        return(1)
-      else:
-        kensu_all = kensu_list[0]
-        kensu_all_string = kensu_all.replace(',', '')
-        kensu_all_int = int(kensu_all_string)
-        page = kensu_all_int // 20 + 2
-        return(page)
-
-def sagasu(page,name,url):
-      job_url_all = []
-
-      for i in range(1, page):
-        j = str(i)
-        #URL_job = "https://baitonet.jp/search/?page=" + j
-        URL_job = url + j
-        driver.get(URL_job)
-        job_html = driver.page_source
-        job_123 = re.findall(name, job_html)
-        job_url = list(set(job_123))
-        job_url_all = job_url_all + job_url
-      return(job_url_all)
-
-def sigotonaiyoucount(job_url_all):
-  joblist = []
-  for job in job_url_all:
-        search_url = 'https://baitonet.jp/' + job
-        driver.get(search_url)
-        element = driver.find_element(By.CLASS_NAME, "jobContentsTxt")
-        element = element.text
-        elementcount = len(element)
-        job_only_url = 'https://baitonet.jp/' + job
-        jobname = (job.replace('job_', '').replace('/', ''))
-        joblist.append([jobname,elementcount,element,job_only_url])
-  return(joblist)
-
-def search(number,cur,con):
-    p = [1,"北海道", "青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"]
-    todouhuken = str(number)
-    todouhuken_url = 'ps_' + todouhuken + '/'
-    URL = "https://baitonet.jp/search/" + todouhuken_url
-    #print("URL:",URL) 
-    driver.get(URL)
-    ahtml = driver.page_source
-    #print("ahtml:",ahtml)
-    apage = pagecount(ahtml)
-    #url_sagasu="https://baitonet.jp/search/?page="
-    url_sagasu="https://baitonet.jp/search/" + todouhuken_url + "?page="
-    jobURL = sagasu(apage,'job_[0-9]{7}/',url_sagasu)
-    ajob = sigotonaiyoucount(jobURL)
+@app.post("/recipes")
+def make(item:item):
+    '''
+    if item.title is None or item.making_time is None or item.serves is None or item.ingredients is None or item.cost is None :
+        param = {"message": "Recipe creation failed!", "required": "title, making_time, serves, ingredients, cost"}
+        return JSONResponse(status_code=200, content=param)
+    '''
+    with sqlite3.connect('recipes.db') as conn:
+        '''
+        cur = conn.cursor()
+        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
+        recipes_lis = cur.execute(sql, (item.id,)).fetchall()
+        conn.commit()
+        count = len(recipes_lis)
+        if count == 0:
+        '''
+        cur = conn.cursor()
+        now = datetime.datetime.now()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        data = (item.title,item.making_time, item.serves, item.ingredients, item.cost, now_str, now_str)
+        sql = f"INSERT INTO recipes (title,making_time,serves,ingredients,cost,created_at,updated_at) values (?,?,?,?,?,?,?)"
+        cur.execute(sql, data)
+        conn.commit()
+        sql2 = f"SELECT * FROM recipes WHERE id  = (select max(id) from recipes)"
+        recipes_lis = cur.execute(sql2).fetchall()
+        dic_list=[]
+        for row in recipes_lis:
+          dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5], "created_at":row[6], "updated_at":row[7]}
+          dic_list.append(dic)
+          param =  {'message':"Recipe successfully created!",'recipe':dic_list}
+        return JSONResponse(status_code=200, content=param)
+        '''
+        else:
+            param = {"message": "Recipe creation failed!", "required": "title, making_time, serves, ingredients, cost"}
+            return JSONResponse(status_code=404, content=param)
+        '''
+@app.get("/recipes")
+def all(): 
+    with sqlite3.connect('recipes.db') as conn:
+        cur = conn.cursor()
+        recipes_lis = cur.execute('SELECT * FROM recipes').fetchall()
+        conn.commit()
+        dic_list=[]
+        for row in recipes_lis:
+            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
+            dic_list.append(dic)
+        param =  {'recipes':dic_list}
+        return JSONResponse(status_code=200, content=param)
     
-    #jobURL_matome =sagasu(apage,'job_group_[0-9]{3}/',"https://baitonet.jp/search/?page=")
-    jobURL_matome =sagasu(apage,'job_group_[0-9]{3}/',"https://baitonet.jp/search/" + todouhuken_url + "?page=")
-    bjob = []
-
-    for k in jobURL_matome:
-     jobURL_motome_k = 'https://baitonet.jp/' + k +  todouhuken_url
-     url_sagasu=jobURL_motome_k+"/?page="
-     driver.get(jobURL_motome_k)
-     bhtml = driver.page_source
-     bpage = pagecount(bhtml)
-     if bpage>=2:
-        jobURL_b = sagasu(bpage,'job_[0-9]{7}/',url_sagasu)
-        bjob = bjob + sigotonaiyoucount(jobURL_b)
-
-    cjob = ajob + bjob
-    print("CJOB:",cjob)
-    number = int(number)
-    for l in cjob:
-       cur.execute("insert into numbers (kid,prefecture,count,content) values(?,?,?,?);", (l[0],p[number],l[1],l[2]))
-
-    con.commit()
-
-db = sqlite3.connect(
-    'baitonetto.db',
-    isolation_level=None,
-)
-
-sql = """
-    create table if not exists numbers (
-      id integer primary key autoincrement,
-      kid text not null,
-      prefecture text not null,
-      count integer,
-      content text not null
-      )
-"""
-
-db.execute(sql)
-db.close
-
-table_name = 'numbers'
-con = sqlite3.connect('baitonetto.db')
-cur = con.cursor()
-"""
-for i in range(1,47):
-    search(i)
-"""
-search(21,cur,con)
-driver.close()
-con.close()
-
+@app.get("/v1/stocks")
+def select(id:int): 
+    with sqlite3.connect('recipes.db') as conn:
+        cur = conn.cursor()
+        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
+        recipes_lis = cur.execute(sql, (id,)).fetchall()
+        conn.commit()
+        dic_list=[]
+        for row in recipes_lis:
+            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
+            dic_list.append(dic)
+        param =  {'message':"Recipe details by id",'recipe':dic_list}
+        return JSONResponse(status_code=200, content=param)
+    
+@app.patch("/recipes/{id}")
+def change(id:int, item:item): 
+    with sqlite3.connect('recipes.db') as conn:
+        now = datetime.datetime.now()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        cur = conn.cursor()
+        data = (item.title,item.making_time, item.serves, item.ingredients, item.cost, now_str, id)
+        sql = f"UPDATE recipes SET title=(?),making_time=(?),serves=(?),ingredients=(?),cost=(?),updated_at=(?) WHERE id LIKE (?)"
+        cur.execute(sql, data).fetchall()
+        conn.commit()
+        #cur = conn.cusor()
+        sql2 = f"SELECT * FROM recipes WHERE id LIKE (?)"
+        recipes_lis = cur.execute(sql2, (id,)).fetchall()
+        conn.commit()
+        dic_list=[]
+        for row in recipes_lis:
+            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
+            dic_list.append(dic)
+            param =  {'message':"Recipe successfuliy updated!",'recipe':dic_list}
+        return JSONResponse(status_code=200, content=param)
+        
+@app.delete("/recipes/{id}")
+def out(id:int): 
+    with sqlite3.connect('recipes.db') as conn:
+        cur = conn.cursor()
+        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
+        recipes_lis = cur.execute(sql, (id,)).fetchall()
+        conn.commit()
+        count = len(recipes_lis)
+        if count == 0:
+            param = { "message":"No Recipe found" }
+            return JSONResponse(status_code=404, content=param)
+        else:
+            cur = conn.cursor()
+            sql = f"DELETE FROM recipes WHERE id LIKE (?)"
+            cur.execute(sql, (id,)).fetchall()
+            conn.commit()
+            param = {  "message": "Recipe successfully removed!" }
+            return JSONResponse(status_code=200, content=param)
