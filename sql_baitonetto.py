@@ -2,127 +2,67 @@ import sqlite3
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
-import datetime
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import re
+#import sql_baitonetto
+import sql_update
 
 class item(BaseModel):
-    title : str
-    making_time : str
-    serves : str
-    ingredients : str
-    cost : int
+    count : int
+    prefecture : str
+
+class item2(BaseModel):
+    prefecture : str
 
 app = FastAPI()
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=200,
-        content=jsonable_encoder({"message": "Recipe creation failed!","required": "title, making_time, serves, ingredients, cost"}),
-    )
+@app.post("/search/")
+def select(item:item): 
+    with sqlite3.connect('baitonetto.db') as conn:
+        cur = conn.cursor()
+        #sql = f"SELECT * FROM numbers WHERE count <= (?) and prefecture = (?)"
+        sql = f"SELECT * FROM numbers WHERE count <= (?) and prefecture = (?) ORDER BY count"
 
-@app.post("/recipes")
-def make(item:item):
-    '''
-    if item.title is None or item.making_time is None or item.serves is None or item.ingredients is None or item.cost is None :
-        param = {"message": "Recipe creation failed!", "required": "title, making_time, serves, ingredients, cost"}
-        return JSONResponse(status_code=200, content=param)
-    '''
-    with sqlite3.connect('recipes.db') as conn:
-        '''
-        cur = conn.cursor()
-        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
-        recipes_lis = cur.execute(sql, (item.id,)).fetchall()
-        conn.commit()
-        count = len(recipes_lis)
-        if count == 0:
-        '''
-        cur = conn.cursor()
-        now = datetime.datetime.now()
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        data = (item.title,item.making_time, item.serves, item.ingredients, item.cost, now_str, now_str)
-        sql = f"INSERT INTO recipes (title,making_time,serves,ingredients,cost,created_at,updated_at) values (?,?,?,?,?,?,?)"
-        cur.execute(sql, data)
-        conn.commit()
-        sql2 = f"SELECT * FROM recipes WHERE id  = (select max(id) from recipes)"
-        recipes_lis = cur.execute(sql2).fetchall()
-        dic_list=[]
-        for row in recipes_lis:
-          dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5], "created_at":row[6], "updated_at":row[7]}
-          dic_list.append(dic)
-          param =  {'message':"Recipe successfully created!",'recipe':dic_list}
-        return JSONResponse(status_code=200, content=param)
-        '''
-        else:
-            param = {"message": "Recipe creation failed!", "required": "title, making_time, serves, ingredients, cost"}
-            return JSONResponse(status_code=404, content=param)
-        '''
-@app.get("/recipes")
-def all(): 
-    with sqlite3.connect('recipes.db') as conn:
-        cur = conn.cursor()
-        recipes_lis = cur.execute('SELECT * FROM recipes').fetchall()
+        numbers_lis = cur.execute(sql, (item.count, item.prefecture)).fetchall()
         conn.commit()
         dic_list=[]
-        for row in recipes_lis:
-            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
+        print(numbers_lis)
+        for row in numbers_lis:
+            dic={"id":row[0],"kid":row[1], "prefecture":row[2], "count":row[3], "content":row[4]}
             dic_list.append(dic)
-        param =  {'recipes':dic_list}
-        return JSONResponse(status_code=200, content=param)
+        #dic_list.sort(key=lambda x: x[3])
+        param =  {'number':dic_list}
+        return JSONResponse(content=param)
     
-@app.get("/v1/stocks")
-def select(id:int): 
-    with sqlite3.connect('recipes.db') as conn:
+@app.patch("/makedb/")
+def change(item2:item2):
+    p = [1,"北海道", "青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"]
+    number = p.index(item2.prefecture)
+    job_list = sql_update.search(number)
+
+    if len(job_list) == 0:
+        message='更新しました。(ちなみに０件です。)'
+        param =  {'message':message}
+        return JSONResponse(content=param)
+
+    with sqlite3.connect('baitonetto.db') as conn:
         cur = conn.cursor()
-        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
-        recipes_lis = cur.execute(sql, (id,)).fetchall()
-        conn.commit()
-        dic_list=[]
-        for row in recipes_lis:
-            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
-            dic_list.append(dic)
-        param =  {'message':"Recipe details by id",'recipe':dic_list}
-        return JSONResponse(status_code=200, content=param)
-    
-@app.patch("/recipes/{id}")
-def change(id:int, item:item): 
-    with sqlite3.connect('recipes.db') as conn:
-        now = datetime.datetime.now()
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        cur = conn.cursor()
-        data = (item.title,item.making_time, item.serves, item.ingredients, item.cost, now_str, id)
-        sql = f"UPDATE recipes SET title=(?),making_time=(?),serves=(?),ingredients=(?),cost=(?),updated_at=(?) WHERE id LIKE (?)"
-        cur.execute(sql, data).fetchall()
-        conn.commit()
-        #cur = conn.cusor()
-        sql2 = f"SELECT * FROM recipes WHERE id LIKE (?)"
-        recipes_lis = cur.execute(sql2, (id,)).fetchall()
-        conn.commit()
-        dic_list=[]
-        for row in recipes_lis:
-            dic={"id":row[0], "title":row[1], "making_time":row[2], "serves":row[3], "ingredients":row[4], "cost":row[5]}
-            dic_list.append(dic)
-            param =  {'message':"Recipe successfuliy updated!",'recipe':dic_list}
-        return JSONResponse(status_code=200, content=param)
-        
-@app.delete("/recipes/{id}")
-def out(id:int): 
-    with sqlite3.connect('recipes.db') as conn:
-        cur = conn.cursor()
-        sql = f"SELECT * FROM recipes WHERE id LIKE (?)"
-        recipes_lis = cur.execute(sql, (id,)).fetchall()
-        conn.commit()
-        count = len(recipes_lis)
-        if count == 0:
-            param = { "message":"No Recipe found" }
-            return JSONResponse(status_code=404, content=param)
-        else:
-            cur = conn.cursor()
-            sql = f"DELETE FROM recipes WHERE id LIKE (?)"
-            cur.execute(sql, (id,)).fetchall()
+        for l in job_list:
+            print(l[0])
+            
+            naiyo_list = cur.execute("SELECT * FROM numbers WHERE kid = (?)", (int(l[0]),)).fetchall()
             conn.commit()
-            param = {  "message": "Recipe successfully removed!" }
-            return JSONResponse(status_code=200, content=param)
+            if len(naiyo_list) == 0:
+                cur.execute("insert into numbers (kid,prefecture,count,content) values(?,?,?,?)", (l[0],number,l[1],l[2]))
+            else:
+                cur.execute("UPDATE numbers SET kid=(?),prefecture=(?),count=(?),content=(?) WHERE id LIKE (?)", (l[0],number,l[1],l[2],naiyo_list[0]))
+            
+            conn.commit()
+        message='更新しました。'
+        param =  {'message':message}
+        return JSONResponse(content=param)
